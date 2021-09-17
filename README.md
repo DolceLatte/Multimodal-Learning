@@ -2,7 +2,7 @@
 Malware detection with multimodal learning
 
 ## Multimodal Architecture
-[Uploading 아키텍쳐.JPG…]()
+![아키텍쳐](https://user-images.githubusercontent.com/45285053/133751430-6978b644-8355-41e3-8eb2-3d354f613899.JPG)
 
 ### Detection Performence
 |Model|Accuracy|description|
