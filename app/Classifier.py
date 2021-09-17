@@ -6,10 +6,10 @@ from torchsummary import summary
 use_cuda = torch.cuda.is_available()
 
 class CNNClassifier_custom(nn.Module):
-    def __init__(self):
+    def __init__(self,input_channel):
         # 항상 torch.nn.Module을 상속받고 시작
         super(CNNClassifier_custom, self).__init__()
-        conv1 = nn.Conv1d(in_channels=17, out_channels=50, kernel_size=3)
+        conv1 = nn.Conv1d(in_channels=input_channel, out_channels=50, kernel_size=3)
         # activation ReLU
         pool1 = nn.MaxPool1d(2)
         conv2 = nn.Conv1d(in_channels=50, out_channels=70, kernel_size=3)
@@ -19,124 +19,71 @@ class CNNClassifier_custom(nn.Module):
         # activation ReLU
         pool3 = nn.MaxPool1d(2)
 
+
         self.conv_module = nn.Sequential(
             conv1,
-            nn.BatchNorm1d(50, affine=True),
             nn.ReLU(),
+            nn.BatchNorm1d(50, affine=True),
             pool1,
             conv2,
-            nn.BatchNorm1d(70, affine=True),
             nn.ReLU(),
+            nn.BatchNorm1d(70, affine=True),
             pool2,
             conv3,
-            nn.BatchNorm1d(70, affine=True),
             nn.ReLU(),
+            nn.BatchNorm1d(70, affine=True),
             pool3,
         )
 
-        fc1 = nn.Linear(31360, 1000)
-        fc2 = nn.Linear(1000, 300)
-        fc3 = nn.Linear(300, 9)
-        fc4 = nn.Linear(9, 2)
-
-        self.fc_module = nn.Sequential(
-            fc1,
-            nn.BatchNorm1d(1000),
-            nn.ReLU(),
-            fc2,
-            nn.BatchNorm1d(300),
-            nn.ReLU(),
-            fc3,
-            nn.BatchNorm1d(9),
-            nn.ReLU(),
-            fc4
-        )
+        self.generator = nn.Linear(17360,2)
+        # We use LogSoftmax + NLLLoss instead of Softmax + CrossEntropy
+        self.activation = nn.LogSoftmax(dim=-1)
 
         # gpu로 할당
         if use_cuda:
             self.conv_module = self.conv_module.cuda()
-            self.fc_module = self.fc_module.cuda()
+            self.activation = self.activation.cuda()
+            self.generator = self.generator.cuda()
 
     def forward(self, x):
         out = self.conv_module(x)
-        # make linear
-        dim = 1
-        for d in out.size()[1:]:
-            dim = dim * d
+        out = torch.flatten(out, 1)
+        y = self.activation(self.generator(out))
+        return y
 
-        out = out.view(-1, dim)
-        out = self.fc_module(out)
-        return F.softmax(out, dim=1)
-#
-# class CNNClassifier_custom(nn.Module):
-#     def __init__(self):
-#         # 항상 torch.nn.Module을 상속받고 시작
-#         super(CNNClassifier_custom, self).__init__()
-#         conv1 = nn.Conv1d(in_channels=17, out_channels=50, kernel_size=3)
-#         # activation ReLU
-#         pool1 = nn.MaxPool1d(2)
-#         conv2 = nn.Conv1d(in_channels=50, out_channels=70, kernel_size=3)
-#         # activation ReLU
-#         pool2 = nn.MaxPool1d(2)
-#         conv3 = nn.Conv1d(in_channels=70, out_channels=70, kernel_size=3)
-#         # activation ReLU
-#         pool3 = nn.MaxPool1d(2)
-#         conv4 = nn.Conv1d(in_channels=70, out_channels=50, kernel_size=3)
-#         # activation ReLU
-#         pool4 = nn.MaxPool1d(2)
-#
-#         self.conv_module = nn.Sequential(
-#             conv1,
-#             nn.BatchNorm1d(50, affine=True),
-#             nn.ReLU(),
-#             pool1,
-#             conv2,
-#             nn.BatchNorm1d(70, affine=True),
-#             nn.ReLU(),
-#             pool2,
-#             conv3,
-#             nn.BatchNorm1d(70, affine=True),
-#             nn.ReLU(),
-#             pool3,
-#             conv4,
-#             nn.BatchNorm1d(50, affine=True),
-#             nn.ReLU(),
-#             pool4,
-#         )
-#
-#         fc1 = nn.Linear(11150, 5000)
-#         fc2 = nn.Linear(5000, 300)
-#         fc3 = nn.Linear(300, 9)
-#         fc4 = nn.Linear(9, 2)
-#
-#         self.fc_module = nn.Sequential(
-#             fc1,
-#             nn.BatchNorm1d(5000),
-#             nn.ReLU(),
-#             fc2,
-#             nn.BatchNorm1d(300),
-#             nn.ReLU(),
-#             fc3,
-#             nn.BatchNorm1d(9),
-#             nn.ReLU(),
-#             fc4
-#         )
-#
-#         # gpu로 할당
-#         if use_cuda:
-#             self.conv_module = self.conv_module.cuda()
-#             self.fc_module = self.fc_module.cuda()
-#
-#     def forward(self, x):
-#         out = self.conv_module(x)
-#         # make linear
-#         dim = 1
-#         for d in out.size()[1:]:
-#             dim = dim * d
-#         out = out.view(-1, dim)
-#         out = self.fc_module(out)
-#         return F.softmax(out, dim=1)
+class DNNClassifier_custom(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.emb = nn.Embedding(328,256)
+        self.rnn = nn.LSTM(
+            input_size=256,
+            hidden_size=128,
+            num_layers=1,
+            batch_first=True,
+            bidirectional=True,
+        )
 
+        self.generator = nn.Linear(128*2,2)
+        # We use LogSoftmax + NLLLoss instead of Softmax + CrossEntropy
+        self.activation = nn.LogSoftmax(dim=-1)
+
+        if use_cuda:
+            self.emb = self.emb.cuda()
+            self.rnn = self.rnn.cuda()
+            self.generator = self.generator.cuda()
+            self.activation = self.activation.cuda()
+
+    def forward(self,x):
+        # |x| = (batch_size, length)
+        x = x.long()
+        x = x.reshape(x.shape[0],x.shape[2])
+        x = self.emb(x)
+        # |x| = (batch_size, length, word_vec_size)
+        x, _ = self.rnn(x)
+        # |x| = (batch_size, length, hidden_size * 2)
+        y = self.activation(self.generator(x[:,-1,:]))
+        # |y| = (batch_size, n_classes)
+        return y
 
 def weight_init(m):
     if isinstance(m, torch.nn.Conv1d) or isinstance(m, torch.nn.Linear):
@@ -145,5 +92,7 @@ def weight_init(m):
             torch.nn.init.xavier_uniform_(m.bias)
 
 if __name__ == '__main__':
-    cnn = CNNClassifier_custom()
-    summary(cnn, (17,3600))
+    #cnn = CNNClassifier_custom(input_channel=14)
+    cnn = DNNClassifier_custom()
+
+    summary(cnn, (1,328))

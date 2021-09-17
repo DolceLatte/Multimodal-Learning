@@ -1,88 +1,58 @@
 import app
-import torch
-import app.Multimodal_Classifier as Classifier
+import app.multimodal as Classifier
 import torch.optim as optim
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
+import torch
+from tqdm import tqdm
 import numpy as np
-
 use_cuda = torch.cuda.is_available()
 
-def Shuffle(l,index):
-    return l[index]
+'''
+'.header': 1, '.text': 2, '.data': 3, '.idata': 4, '.edata': 5, '.pdata': 6,
+'.rsrc': 7, '.reloc': 8, '.rdata': 9, '.sdata': 10, '.xdata': 11,
+'.tls': 12, 'Undefined': 13
+'''
 
-def load_multimodal_data():
-    l, X_train, y_train = app.load_pefile_data("./label/trainedLabel.csv", "/dataset/dataset_17", w=17,
-                                               MaxChunkLen=3600)
-    l, X_test, y_test = app.load_pefile_data("./label/testLabel.csv", "/dataset/dataset_17", w=17, MaxChunkLen=3600)
+# Press the green button in the gutter to run the script.
+if __name__ == '__main__':
 
-    e_l, e_X_train, e_y_train = app.load_pefile_data("./label/trainedLabel.csv", "/dataset/dataset_e_named", w=1,
-                                                     MaxChunkLen=328)
-    e_l, e_X_test, e_y_test = app.load_pefile_data("./label/testLabel.csv", "/dataset/dataset_e_named", w=1,
-                                                   MaxChunkLen=328)
-
-    e_X_train = np.array(e_X_train)
-    e_X_train = e_X_train.reshape(len(e_X_train), (328))
-
-    e_X_test = np.array(e_X_test)
-    e_X_test = e_X_test.reshape(len(e_X_test), (328))
-
-    index = np.arange(X_train.shape[0])
+    index = np.arange(22059)
     np.random.shuffle(index)
-
-    test_index = np.arange(X_test.shape[0])
+    test_index = np.arange(9459)
     np.random.shuffle(test_index)
 
-    X_train = Shuffle(X_train,index)
-    y_train = Shuffle(y_train,index)
-    X_test = Shuffle(X_test,test_index)
-    y_test = Shuffle(y_test,test_index)
+    e_X_train, e_y_train = app.load_pefile_data(fileListPath="dataset/trainedLabel.csv",
+                                            folder="data/raw_header", w=1, MaxChunkLen=328,ind=index)
+    e_X_test, e_y_test = app.load_pefile_data(fileListPath="dataset/testLabel.csv",
+                                            folder="data/raw_header", w=1, MaxChunkLen=328,ind=test_index)
 
-    e_X_train = Shuffle(e_X_train, index)
-    e_y_train = Shuffle(e_y_train, index)
-    e_X_test = Shuffle(e_X_test, test_index)
-    e_y_test = Shuffle(e_y_test, test_index)
+    print("Xtrain's shape : ",e_X_train.shape)
+    print("Xtest's shape : ", e_X_test.shape)
 
-    X_train = torch.tensor(X_train, dtype=torch.float32)
-    y_train = torch.tensor(y_train, dtype=torch.int64)
-    X_test = torch.tensor(X_test, dtype=torch.float32)
-    y_test = torch.tensor(y_test, dtype=torch.int64)
+    X_train, y_train = app.load_pefile_data(fileListPath="dataset/trainedLabel.csv",
+                                            folder="data/structural_entropy_14section_sectionmapping", w=14, MaxChunkLen=2000,ind=index)
+    X_test, y_test = app.load_pefile_data(fileListPath="dataset/testLabel.csv",
+                                          folder="data/structural_entropy_14section_sectionmapping", w=14, MaxChunkLen=2000,ind=test_index)
 
-    e_X_train = torch.tensor(e_X_train, dtype=torch.float32)
-    e_y_train = torch.tensor(e_y_train, dtype=torch.int64)
-    e_X_test = torch.tensor(e_X_test, dtype=torch.float32)
-    e_y_test = torch.tensor(e_y_test, dtype=torch.int64)
+    print("Xtrain's shape : ", X_train.shape)
+    print("Xtest's shape : ", X_test.shape)
 
-    trainset = TensorDataset(X_train, y_train)
-    testset = TensorDataset(X_test, y_test)
+    trn_loader = app.getLoader(X_train, y_train)
+    val_loader = app.getLoader(X_test, y_test)
 
-    e_trainset = TensorDataset(e_X_train, e_y_train)
-    e_testset = TensorDataset(e_X_test, e_y_test)
+    e_trn_loader = app.getLoader(e_X_train, e_y_train)
+    e_val_loader = app.getLoader(e_X_test, e_y_test)
 
-    trn_loader = DataLoader(trainset, batch_size=64, shuffle=False)
-    val_loader = DataLoader(testset, batch_size=64, shuffle=False)
+    cnn_weight = torch.load("model/cnn.pt")
+    dnn_weight = torch.load("model/rnn.pt")
 
-    e_trn_loader = DataLoader(e_trainset, batch_size=64, shuffle=False)
-    e_val_loader = DataLoader(e_testset, batch_size=64, shuffle=False)
+    #cnn_dnn = Classifier.GateClassifier(param_cnn=cnn_weight,param_dnn=dnn_weight)
+    cnn_dnn = Classifier.FusionClassifier(param_cnn=cnn_weight,param_dnn=dnn_weight)
+    criterion = nn.NLLLoss()
+    learning_rate = 1e-5
+    optimizer = optim.Adam(cnn_dnn.parameters(), lr=learning_rate)
 
-    return trn_loader , val_loader ,e_trn_loader , e_val_loader
-
-def main():
-    trn_loader , val_loader ,e_trn_loader , e_val_loader = load_multimodal_data()
-
-    #cnn = torch.load("C:/Users/김정우/PycharmProjects/Malware_Classification/model/cnn.pth")
-    cnnOpt = torch.load("C:/Users/김정우/PycharmProjects/Malware_Classification/model/cnnOpt.pth")
-
-    dnn = torch.load("C:/Users/김정우/PycharmProjects/Malware_Classification/model/dnn.pth")
-    dnn_2200 = torch.load("C:/Users/김정우/PycharmProjects/Malware_Classification/model/dnn_2200.pth")
-
-    cnn_dnn = Classifier.CDNNClassifier(cnnOpt, dnn)
-
-    criterion = nn.CrossEntropyLoss()
-    learning_rate = 1e-3
-    optimizer = optim.Adam(cnn_dnn.parameters(), lr=learning_rate, weight_decay = 1e-7)
-
-    num_epochs = 12
+    num_epochs = 10
     num_batches = len(trn_loader)
 
     trn_loss_list = []
@@ -99,8 +69,6 @@ def main():
                 x = x.cuda()
                 e_x = e_x.cuda()
                 label = label.cuda()
-
-            x = x.transpose(1, 2)
             optimizer.zero_grad()
             model_output = cnn_dnn(e_x, x)
             loss = criterion(model_output, label)
@@ -111,7 +79,7 @@ def main():
             del model_output
 
             # 학습과정 출력
-            if (i + 1) % 236 == 0:
+            if (i + 1) % 86 == 0:
                 # every 100 mini-batches
                 with torch.no_grad():
                     val_loss = 0.0
@@ -122,7 +90,6 @@ def main():
                             val_x = val_x.cuda()
                             e_val_x = e_val_x.cuda()
                             val_label = val_label.cuda()
-                        val_x = val_x.transpose(1, 2)
 
                         val_output = cnn_dnn(e_val_x, val_x)
                         v_loss = criterion(val_output, val_label)
@@ -149,7 +116,6 @@ def main():
                 val_x = val_x.cuda()
                 e_val_x = e_val_x.cuda()
                 val_label = val_label.cuda()
-            val_x = val_x.transpose(1, 2)
             val_output = cnn_dnn(e_val_x, val_x)
             model_label = val_output.argmax(dim=1)
             corr = val_label[val_label == model_label].size(0)
@@ -157,7 +123,4 @@ def main():
             total_num += val_label.size(0)
 
     print("acc: {:.2f}".format(corr_num / total_num * 100))
-    #torch.save(cnn_dnn.state_dict(), "./model/multimodal_Cnn_dnn_smallHiddnV.pth", )
-
-if __name__ == '__main__':
-    main()
+    torch.save(cnn_dnn.state_dict(),"model/Fusionmodel_rnn.pt")
